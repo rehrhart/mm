@@ -393,6 +393,7 @@ const gps_probe_entry_t gps_probe_table[GPT_MAX_INDEX] = {
 module Gsd4eUP {
   provides {
     interface GPSState;
+    interface GPSTransmit;
     interface Boot as GPSBoot;          /* outBoot */
   }
   uses {
@@ -611,6 +612,28 @@ implementation {
   }
 
 
+  uint16_t m_tx_len;
+
+  command error_t GPSTransmit.send(uint8_t *ptr, uint16_t len) {
+    if (m_tx_len)
+      return EBUSY;
+    m_tx_len = len;
+    return call HW.gps_send_block((void *) ptr, len);
+  }
+
+
+  task void send_block_task();
+
+  command void GPSTransmit.send_stop() {
+    call HW.gps_send_block_stop();
+    m_tx_len = 0;
+    atomic {
+      if (gpsc_state > GPSC_ON_RX)
+        post send_block_task();
+    }
+  }
+
+
   /*
    * send_block_task
    *
@@ -669,13 +692,21 @@ implementation {
         case GPSC_ON_TX:
           call GPSTxTimer.stop();
           gpsc_change_state(GPSC_ON, GPSW_SEND_BLOCK_TASK);
-          /* signal out to the caller that started up the GPSSend.send */
+
+          /* signal out to the caller that started up the GPSTransmit.send */
+          if (m_tx_len)
+            signal GPSTransmit.send_done();
+          m_tx_len = 0;
           return;
 
         case GPSC_ON_RX_TX:
           call GPSTxTimer.stop();
           gpsc_change_state(GPSC_ON_RX, GPSW_SEND_BLOCK_TASK);
+
           /* signal out to the caller that started up the GPSSend.send */
+          if (m_tx_len)
+            signal GPSTransmit.send_done();
+          m_tx_len = 0;
           return;
       }
     }
