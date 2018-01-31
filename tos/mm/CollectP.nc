@@ -136,7 +136,7 @@ module CollectP {
 
 implementation {
 
-  norace dc_control_t dcc;
+  norace dc_control_t dcc;              /* data collector control block */
 
 
   /*
